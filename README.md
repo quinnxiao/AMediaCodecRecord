@@ -3,6 +3,10 @@
 
 #音频初始化方式</br>
 ```cpp
+    Arguments *arguments = (Arguments *) malloc(sizeof(Arguments));
+    arguments->jniEnv = env;
+    arguments->jniEnv->GetJavaVM(&arguments->javaVM);
+    
     jclass AudioRecordClass = arguments->jniEnv->FindClass("android/media/AudioRecord");
     jmethodID init_id = arguments->jniEnv->GetMethodID(AudioRecordClass, "<init>", "(IIIII)V");
     jmethodID minBufferSize_id = arguments->jniEnv->GetStaticMethodID(AudioRecordClass,
