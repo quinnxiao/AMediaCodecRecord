@@ -11,6 +11,7 @@
 #include <android/log.h>
 #endif
 #include <libgen.h>
+#include <unistd.h>
 
 static int JNI_DEBUG = 1;
 #define LOG_TAG "NativeRecord"

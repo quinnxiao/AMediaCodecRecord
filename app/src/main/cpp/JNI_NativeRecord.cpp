@@ -5,9 +5,9 @@ NativeRecord *record;
 
 extern "C" {
 jboolean
-Java_com_quinn_amediacodecrecord_NativeRecord_prepare(JNIEnv *env, jclass type, jstring _path,
+Java_com_quinn_amediacodecrecord_NativeRecord_nativePrepare(JNIEnv *env, jclass type, jstring _path,
                                                       jint width,
-                                                      jint height) {
+                                                      jint height,jint frameRate,jint colorFormat,jint bitRate) {
     Arguments *arguments = (Arguments *) malloc(sizeof(Arguments));
     arguments->jniEnv = env;
     arguments->jniEnv->GetJavaVM(&arguments->javaVM);
@@ -38,6 +38,9 @@ Java_com_quinn_amediacodecrecord_NativeRecord_prepare(JNIEnv *env, jclass type, 
     arguments->path = path;
     arguments->width = width;
     arguments->height = height;
+    arguments->frameRate = frameRate;
+    arguments->colorFormat = colorFormat;
+    arguments->bitRate = bitRate;
 
     record = new NativeRecord(arguments);
     if (record->prepare()) {
@@ -47,7 +50,7 @@ Java_com_quinn_amediacodecrecord_NativeRecord_prepare(JNIEnv *env, jclass type, 
 }
 
 JNIEXPORT void JNICALL
-Java_com_quinn_amediacodecrecord_NativeRecord_sendVideoData(JNIEnv *env, jclass type,
+Java_com_quinn_amediacodecrecord_NativeRecord_nativeSendVideoData(JNIEnv *env, jclass type,
                                                             jbyteArray data_) {
     jbyte *data = env->GetByteArrayElements(data_, NULL);
 
@@ -58,14 +61,32 @@ Java_com_quinn_amediacodecrecord_NativeRecord_sendVideoData(JNIEnv *env, jclass 
     env->ReleaseByteArrayElements(data_, data, 0);
 }
 
-jint Java_com_quinn_amediacodecrecord_NativeRecord_start(JNIEnv *env, jclass type) {
+jboolean Java_com_quinn_amediacodecrecord_NativeRecord_nativeStart(JNIEnv *env, jclass type) {
     if (record != NULL) {
-        record->start();
+        if (record->start()){
+            return JNI_TRUE;
+        }else {
+            return JNI_FALSE;
+        }
     }
-    return 0;
+    return JNI_FALSE;
 }
 
-void Java_com_quinn_amediacodecrecord_NativeRecord_stop(JNIEnv *env, jclass type) {
+JNIEXPORT jboolean JNICALL
+Java_com_quinn_amediacodecrecord_NativeRecord_nativeIsRecording(JNIEnv *env, jclass type) {
+
+    if (record != NULL) {
+        if (record->isRecording()){
+            return JNI_TRUE;
+        }else {
+            return JNI_FALSE;
+        }
+    }
+    return JNI_FALSE;
+
+}
+
+void Java_com_quinn_amediacodecrecord_NativeRecord_nativeStop(JNIEnv *env, jclass type) {
     if (record != NULL) {
         record->stop();
         record = NULL;

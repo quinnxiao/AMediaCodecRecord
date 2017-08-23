@@ -14,9 +14,7 @@
 #define AUDIO_SOURCE (1)
 
 
-#define FRAME_RATE (30)
 #define I_FRAME_INTERVAL (1)
-#define COLOR_FORMAT (21)
 
 #include <media/NdkMediaMuxer.h>
 #include <media/NdkMediaCodec.h>
@@ -24,6 +22,7 @@
 #include <pthread.h>
 #include <jni.h>
 #include "Arguments.h"
+#include "ThreadQueue.cpp"
 
 
 class NativeRecord {
@@ -32,6 +31,7 @@ private:
     AMediaCodec *audioCodec;   //编码器，用于音频编码
     AMediaCodec *videoCodec;   //编码器，用于视频编码
     Arguments *arguments;
+    ThreadQueue<void *> frame_queue;
 
     const char *AUDIO_MIME = "audio/mp4a-latm", *VIDEO_MIME = "video/avc";
 
@@ -41,18 +41,12 @@ private:
     pthread_t mAudioThread, mVideoThread;
     pthread_mutex_t media_mutex;
 
-    void *nowFeedData;
-
-    const float BPP = 0.25f;
-
     int64_t fpsTime;
     uint sleepTime = 20*1000;
 
-    bool isRecording = false,mStartFlag = false;
+    bool mIsRecording = false,mStartFlag = false;
 
     int64_t nanoTime;
-
-    int64_t duration;
 
 public:
     NativeRecord(Arguments *arguments);
@@ -61,7 +55,9 @@ public:
 
     bool prepare();
 
-    int start();
+    bool start();
+
+    bool isRecording();
 
     void stop();
 

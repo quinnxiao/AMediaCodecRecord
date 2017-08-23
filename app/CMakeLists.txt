@@ -5,6 +5,7 @@ add_library(
              SHARED
              src/main/cpp/JNI_NativeRecord.cpp
              src/main/cpp/NativeRecord.cpp
+             src/main/cpp/ThreadQueue.cpp
               )
 
 find_library(

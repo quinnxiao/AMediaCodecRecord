@@ -14,7 +14,7 @@ typedef struct Arguments{
     JNIEnv *jniEnv;
 
     const char *path;        //文件保存的路径
-    int width, height;
+    int width, height,frameRate,colorFormat,bitRate;
 };
 
 #endif //INC_720VV_O2_ARGUMENTS_H

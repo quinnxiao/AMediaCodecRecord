@@ -12,8 +12,8 @@
 
 NativeRecord::NativeRecord(Arguments *arguments)
         : arguments(arguments) {
-    fpsTime = 1000 / FRAME_RATE;
-    pthread_mutex_init(&media_mutex,NULL);
+    fpsTime = 1000 / arguments->frameRate;
+    pthread_mutex_init(&media_mutex, NULL);
 }
 
 NativeRecord::~NativeRecord() {
@@ -33,33 +33,45 @@ bool NativeRecord::prepare() {
     AMediaFormat_setInt32(audioFormat, AMEDIAFORMAT_KEY_AAC_PROFILE, AAC_PROFILE);
     AMediaFormat_setInt32(audioFormat, AMEDIAFORMAT_KEY_BIT_RATE, AUDIO_BIT_RATE);
     AMediaFormat_setInt32(audioFormat, AMEDIAFORMAT_KEY_CHANNEL_COUNT, CHANNEL_COUNT);
-//    AMediaFormat_setInt32(audioFormat, AMEDIAFORMAT_KEY_IS_ADTS, 0);
-//    uint8_t es[2] = {0x12, 0x12};
-//    AMediaFormat_setBuffer(audioFormat, "csd-0", es, 2);
-    audioCodec = AMediaCodec_createEncoderByType(AUDIO_MIME);
-    AMediaCodec_configure(audioCodec, audioFormat, NULL, NULL, AMEDIACODEC_CONFIGURE_FLAG_ENCODE);
-    LOGI("音频初始化完毕");
+    AMediaFormat_setInt32(audioFormat, AMEDIAFORMAT_KEY_IS_ADTS, 0);
+    uint8_t es[2] = {0x12, 0x12};
+    AMediaFormat_setBuffer(audioFormat, "csd-0", es, 2);
+    media_status_t audioConfigureStatus = AMediaCodec_configure(audioCodec, audioFormat, NULL, NULL,
+                                                                AMEDIACODEC_CONFIGURE_FLAG_ENCODE);
+    if (AMEDIA_OK != audioConfigureStatus) {
+        LOGE("set audio configure failed status-->%d", audioConfigureStatus);
+        return false;
+    }
+    AMediaFormat_delete(audioFormat);
+    LOGI("init audioCodec success");
 
 
     AMediaFormat *videoFormat = AMediaFormat_new();
     AMediaFormat_setString(videoFormat, AMEDIAFORMAT_KEY_MIME, VIDEO_MIME);
     AMediaFormat_setInt32(videoFormat, AMEDIAFORMAT_KEY_WIDTH, arguments->width);
     AMediaFormat_setInt32(videoFormat, AMEDIAFORMAT_KEY_HEIGHT, arguments->height);
-    AMediaFormat_setInt32(videoFormat, AMEDIAFORMAT_KEY_BIT_RATE,
-                          (int) (BPP * FRAME_RATE * arguments->width * arguments->height));
-    AMediaFormat_setInt32(videoFormat, AMEDIAFORMAT_KEY_FRAME_RATE, FRAME_RATE);
+    AMediaFormat_setInt32(videoFormat, AMEDIAFORMAT_KEY_BIT_RATE, arguments->bitRate);
+    AMediaFormat_setInt32(videoFormat, AMEDIAFORMAT_KEY_FRAME_RATE, arguments->frameRate);
     AMediaFormat_setInt32(videoFormat, AMEDIAFORMAT_KEY_I_FRAME_INTERVAL, I_FRAME_INTERVAL);
-    AMediaFormat_setInt32(videoFormat, AMEDIAFORMAT_KEY_COLOR_FORMAT, COLOR_FORMAT);
-//    AMediaFormat_setBuffer(videoFormat, "csd-0", sps, spsSize); // sps
-//    AMediaFormat_setBuffer(videoFormat, "csd-1", pps, ppsSize); // pps
+    AMediaFormat_setInt32(videoFormat, AMEDIAFORMAT_KEY_COLOR_FORMAT, arguments->colorFormat);
+    uint8_t sps[2] = {0x12, 0x12};
+    uint8_t pps[2] = {0x12, 0x12};
+    AMediaFormat_setBuffer(videoFormat, "csd-0", sps, 2); // sps
+    AMediaFormat_setBuffer(videoFormat, "csd-1", pps, 2); // pps
     videoCodec = AMediaCodec_createEncoderByType(VIDEO_MIME);
-    AMediaCodec_configure(videoCodec, videoFormat, NULL, NULL, AMEDIACODEC_CONFIGURE_FLAG_ENCODE);
-    LOGI("视频初始化完毕");
+    media_status_t videoConfigureStatus = AMediaCodec_configure(videoCodec, videoFormat, NULL, NULL,
+                                                                AMEDIACODEC_CONFIGURE_FLAG_ENCODE);
+    if (AMEDIA_OK != videoConfigureStatus) {
+        LOGE("set video configure failed status-->%d", videoConfigureStatus);
+        return false;
+    }
+    AMediaFormat_delete(videoFormat);
+    LOGI("init videoCodec success");
 
 
     int fd = open(arguments->path, O_CREAT | O_RDWR, 0666);
     if (!fd) {
-        LOGI("打开文件出错");
+        LOGE("open media file failed-->%d", fd);
         return false;
     }
     mMuxer = AMediaMuxer_new(fd, AMEDIAMUXER_OUTPUT_FORMAT_MPEG_4);
@@ -68,48 +80,53 @@ bool NativeRecord::prepare() {
 }
 
 void NativeRecord::feedData(void *data) {
-    nowFeedData = data;
+    frame_queue.push(data);
 }
 
-int NativeRecord::start() {
+bool NativeRecord::start() {
     nanoTime = systemnanotime();
 
     pthread_mutex_lock(&media_mutex);
     media_status_t audioStatus = AMediaCodec_start(audioCodec);
-    LOGI("开启音频编码%d", audioStatus);
+    if (AMEDIA_OK != audioStatus) {
+        LOGI("open audioCodec status-->%d", audioStatus);
+        return false;
+    }
     media_status_t videoStatus = AMediaCodec_start(videoCodec);
-    LOGI("开启视频编码%d", videoStatus);
+    if (AMEDIA_OK != videoStatus) {
+        LOGI("open videoCodec status-->%d", videoStatus);
+        return false;
+    }
 
     arguments->jniEnv->CallVoidMethod(arguments->mAudioRecord, arguments->startRecording_id);
 
-    isRecording = true;
+    mIsRecording = true;
     mStartFlag = true;
 
-    if (mAudioThread){
+    if (mAudioThread) {
         pthread_join(mAudioThread, NULL);
         mAudioThread = NULL;
     }
-    if (mVideoThread){
+    if (mVideoThread) {
         pthread_join(mVideoThread, NULL);
         mVideoThread = NULL;
     }
-    pthread_create(&mAudioThread, NULL, NativeRecord::audioStep, this);
     pthread_create(&mVideoThread, NULL, NativeRecord::videoStep, this);
+    pthread_create(&mAudioThread, NULL, NativeRecord::audioStep, this);
     pthread_mutex_unlock(&media_mutex);
-    return 0;
+    return true;
+}
+
+bool NativeRecord::isRecording() {
+    return mIsRecording;
 }
 
 void NativeRecord::stop() {
     LOGI("stop");
     pthread_mutex_lock(&media_mutex);
-    isRecording = false;
+    mIsRecording = false;
     mStartFlag = false;
-    if (pthread_join(mAudioThread, NULL) != EXIT_SUCCESS) {
-        LOGE("NativeRecord::terminate audio thread: pthread_join failed");
-    }
-    if (pthread_join(mVideoThread, NULL) != EXIT_SUCCESS) {
-        LOGE("NativeRecord::terminate video thread: pthread_join failed");
-    }
+
     if (arguments->mAudioRecord != NULL) {
         arguments->jniEnv->CallVoidMethod(arguments->mAudioRecord, arguments->stop_id);
         arguments->jniEnv->CallVoidMethod(arguments->mAudioRecord, arguments->release_id);
@@ -137,6 +154,14 @@ void NativeRecord::stop() {
         AMediaMuxer_delete(mMuxer);
         mMuxer = NULL;
     }
+
+    if (pthread_join(mAudioThread, NULL) != EXIT_SUCCESS) {
+        LOGE("NativeRecord::terminate audio thread: pthread_join failed");
+    }
+    if (pthread_join(mVideoThread, NULL) != EXIT_SUCCESS) {
+        LOGE("NativeRecord::terminate video thread: pthread_join failed");
+    }
+
     pthread_mutex_unlock(&media_mutex);
     pthread_mutex_destroy(&media_mutex);
     LOGI("finish");
@@ -163,8 +188,8 @@ void *NativeRecord::audioStep(void *obj) {
                 env->ReleaseByteArrayElements(temp, audio_bytes, 0);
                 AMediaCodec_queueInputBuffer(record->audioCodec, index, 0, out_size,
                                              (systemnanotime() - record->nanoTime) / 1000,
-                                             record->isRecording ? 0
-                                                                 : AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
+                                             record->mIsRecording ? 0
+                                                                  : AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
             }
             record->arguments->javaVM->DetachCurrentThread();
         }
@@ -180,19 +205,21 @@ void *NativeRecord::audioStep(void *obj) {
                                                                     &out_size);
                 if (record->mAudioTrack >= 0 && record->mVideoTrack >= 0 && info->size > 0 &&
                     info->presentationTimeUs > 0) {
-                    media_status_t status = AMediaMuxer_writeSampleData(record->mMuxer, record->mAudioTrack, outputBuffer,
-                                                                        info);
-                    LOGE("音频状态====%d",status);
+                    AMediaMuxer_writeSampleData(record->mMuxer, record->mAudioTrack,
+                                                outputBuffer,
+                                                info);
                 }
                 AMediaCodec_releaseOutputBuffer(record->audioCodec, outIndex, false);
-                if (record->isRecording) {
+                if (record->mIsRecording) {
                     continue;
                 }
             } else if (outIndex == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
-                record->mAudioTrack = AMediaMuxer_addTrack(record->mMuxer,
-                                                           AMediaCodec_getOutputFormat(
-                                                                   record->audioCodec));
-                LOGE("add audio track-->%d", record->mAudioTrack);
+                AMediaFormat *outFormat = AMediaCodec_getOutputFormat(record->audioCodec);
+                ssize_t track = AMediaMuxer_addTrack(record->mMuxer, outFormat);
+                const char *s = AMediaFormat_toString(outFormat);
+                record->mAudioTrack = 1;
+                LOGI("audio out format %s", s);
+                LOGE("add audio track status-->%d", track);
                 if (record->mAudioTrack >= 0 && record->mVideoTrack >= 0) {
                     AMediaMuxer_start(record->mMuxer);
                 }
@@ -207,18 +234,20 @@ void *NativeRecord::videoStep(void *obj) {
     LOGI("videoStep");
     NativeRecord *record = (NativeRecord *) obj;
     while (record->mStartFlag) {
-        int64_t time = systemnanotime();
+        if (record->frame_queue.empty()) continue;
+//        int64_t time = systemnanotime();
         ssize_t index = AMediaCodec_dequeueInputBuffer(record->videoCodec, -1);
         size_t out_size;
         if (index >= 0) {
             uint8_t *buffer = AMediaCodec_getInputBuffer(record->videoCodec, index, &out_size);
-            if (record->nowFeedData != NULL) {
-                memcpy(buffer, record->nowFeedData, out_size);
+            void *data = *record->frame_queue.wait_and_pop().get();
+            if (data != NULL) {
+                memcpy(buffer, data, out_size);
             }
             AMediaCodec_queueInputBuffer(record->videoCodec, index, 0, out_size,
                                          (systemnanotime() - record->nanoTime) / 1000,
-                                         record->isRecording ? 0
-                                                             : AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
+                                         record->mIsRecording ? 0
+                                                              : AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
         }
         AMediaCodecBufferInfo *info = (AMediaCodecBufferInfo *) malloc(
                 sizeof(AMediaCodecBufferInfo));
@@ -231,28 +260,30 @@ void *NativeRecord::videoStep(void *obj) {
                                                                     &out_size);
                 if (record->mAudioTrack >= 0 && record->mVideoTrack >= 0 && info->size > 0 &&
                     info->presentationTimeUs > 0) {
-                    media_status_t status = AMediaMuxer_writeSampleData(record->mMuxer, record->mVideoTrack, outputBuffer,
-                                                                        info);
-                    LOGE("视频状态====%d",status);
+                    AMediaMuxer_writeSampleData(record->mMuxer, record->mVideoTrack,
+                                                outputBuffer,
+                                                info);
                 }
                 AMediaCodec_releaseOutputBuffer(record->videoCodec, outIndex, false);
-                if (record->isRecording) {
+                if (record->mIsRecording) {
                     continue;
                 }
             } else if (outIndex == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
-                record->mVideoTrack = AMediaMuxer_addTrack(record->mMuxer,
-                                                           AMediaCodec_getOutputFormat(
-                                                                   record->videoCodec));
-                LOGE("add video track-->%d", record->mVideoTrack);
+                AMediaFormat *outFormat = AMediaCodec_getOutputFormat(record->videoCodec);
+                ssize_t track = AMediaMuxer_addTrack(record->mMuxer, outFormat);
+                const char *s = AMediaFormat_toString(outFormat);
+                record->mVideoTrack = 0;
+                LOGI("video out format %s", s);
+                LOGE("add video track status-->%d", track);
                 if (record->mAudioTrack >= 0 && record->mVideoTrack >= 0) {
                     AMediaMuxer_start(record->mMuxer);
                 }
             }
         } while (outIndex >= 0);
-        int64_t lt = systemnanotime() - time;
-        if (record->fpsTime > lt) {
-            usleep(record->sleepTime);
-        }
+//        int64_t lt = systemnanotime() - time;
+//        if (record->fpsTime > lt) {
+//            usleep(record->sleepTime);
+//        }
     }
     return 0;
 }

@@ -15,12 +15,13 @@ public class MainActivity extends AppCompatActivity {
     private Button button;
     private TextureView textureView;
 
-    private boolean isRecode;
+    private NativeRecord record;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        record = new NativeRecord();
 
         button = (Button) findViewById(R.id.btn);
         textureView = (TextureView) findViewById(R.id.surface);
@@ -28,15 +29,15 @@ public class MainActivity extends AppCompatActivity {
         button.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (!isRecode) {
-                    NativeRecord.prepare("/sdcard/720VV_O2/local/temp.mp4",1920,1080);
-                    NativeRecord.start();
-                    button.setText("Stop");
+                if (!record.isRecording()) {
+                    if (record.recordPreper("/sdcard/720VV_O2/local/temp.mp4",1920,1080,30)){
+                        record.start();
+                        button.setText("Stop");
+                    }
                 } else {
-                    NativeRecord.stop();
+                    record.stop();
                     button.setText("Start");
                 }
-                isRecode = !isRecode;
             }
         });
     }
@@ -83,8 +84,8 @@ public class MainActivity extends AppCompatActivity {
     private Camera.PreviewCallback previewCallback = new Camera.PreviewCallback() {
         @Override
         public void onPreviewFrame(final byte[] data, Camera camera) {
-            if (isRecode)
-                NativeRecord.sendVideoData(data);
+            if (record.isRecording())
+                record.sendVideoData(data);
         }
     };
 }
