@@ -13,36 +13,37 @@ import java.util.Arrays;
 
 public class Util {
 
+    private static final boolean DEBUG = true;
+
     public static int checkColorFormat(String mime) {
         if (Build.MODEL.equals("HUAWEI P6-C00")) {
-            return MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar;
+            return MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible;
         }
-        for (int i = 0; i < MediaCodecList.getCodecCount(); i++) {
-            MediaCodecInfo info = MediaCodecList.getCodecInfoAt(i);
+        MediaCodecInfo[] codecList = new MediaCodecList(MediaCodecList.ALL_CODECS).getCodecInfos();
+        for (MediaCodecInfo info : codecList) {
             if (info.isEncoder()) {
                 String[] types = info.getSupportedTypes();
                 for (String type : types) {
                     if (type.equals(mime)) {
-                        Log.e("YUV", "type-->" + type);
+                        if (DEBUG)
+                            Log.d("YUV", "checkColorFormat(Util.java:26) type-->" + type);
                         MediaCodecInfo.CodecCapabilities c = info.getCapabilitiesForType(type);
-                        Log.e("YUV", "color-->" + Arrays.toString(c.colorFormats));
-                        for (int j = 0; j < c.colorFormats.length; j++) {
-                            if (c.colorFormats[j] == MediaCodecInfo.CodecCapabilities
-                                    .COLOR_FormatYUV420Planar) {
-                                return MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar;
-                            } else if (c.colorFormats[j] == MediaCodecInfo.CodecCapabilities
-                                    .COLOR_FormatYUV420SemiPlanar) {
-                                return MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar;
+                        if (DEBUG)
+                            Log.d("YUV", "checkColorFormat(Util.java:29) color-->" + Arrays.toString(c.colorFormats));
+                        for (int format : c.colorFormats) {
+                            if (format == MediaCodecInfo.CodecCapabilities
+                                    .COLOR_FormatYUV420Flexible) {
+                                return MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible;
                             }
                         }
                     }
                 }
             }
         }
-        return MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar;
+        return MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible;
     }
 
-    public static int calcBitRate(int frameRate,int width,int height){
+    public static int calcBitRate(int frameRate, int width, int height) {
         final int bitrate = (int) (0.25f * frameRate * width * height);
         return bitrate;
     }

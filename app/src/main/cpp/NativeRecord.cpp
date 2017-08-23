@@ -36,6 +36,7 @@ bool NativeRecord::prepare() {
     AMediaFormat_setInt32(audioFormat, AMEDIAFORMAT_KEY_IS_ADTS, 0);
     uint8_t es[2] = {0x12, 0x12};
     AMediaFormat_setBuffer(audioFormat, "csd-0", es, 2);
+    audioCodec = AMediaCodec_createEncoderByType(AUDIO_MIME);
     media_status_t audioConfigureStatus = AMediaCodec_configure(audioCodec, audioFormat, NULL, NULL,
                                                                 AMEDIACODEC_CONFIGURE_FLAG_ENCODE);
     if (AMEDIA_OK != audioConfigureStatus) {
@@ -67,7 +68,6 @@ bool NativeRecord::prepare() {
     }
     AMediaFormat_delete(videoFormat);
     LOGI("init videoCodec success");
-
 
     int fd = open(arguments->path, O_CREAT | O_RDWR, 0666);
     if (!fd) {
@@ -183,7 +183,7 @@ void *NativeRecord::audioStep(void *obj) {
                                              record->arguments->read_id, temp, 0,
                                              out_size);
             jbyte *audio_bytes = env->GetByteArrayElements(temp, NULL);
-            if (length > 0) {
+            if (length > 0 && out_size > 0) {
                 memcpy(inputBuffer, audio_bytes, out_size);
                 env->ReleaseByteArrayElements(temp, audio_bytes, 0);
                 AMediaCodec_queueInputBuffer(record->audioCodec, index, 0, out_size,
@@ -241,13 +241,13 @@ void *NativeRecord::videoStep(void *obj) {
         if (index >= 0) {
             uint8_t *buffer = AMediaCodec_getInputBuffer(record->videoCodec, index, &out_size);
             void *data = *record->frame_queue.wait_and_pop().get();
-            if (data != NULL) {
+            if (data != NULL && out_size > 0) {
                 memcpy(buffer, data, out_size);
+                AMediaCodec_queueInputBuffer(record->videoCodec, index, 0, out_size,
+                                             (systemnanotime() - record->nanoTime) / 1000,
+                                             record->mIsRecording ? 0
+                                                                  : AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
             }
-            AMediaCodec_queueInputBuffer(record->videoCodec, index, 0, out_size,
-                                         (systemnanotime() - record->nanoTime) / 1000,
-                                         record->mIsRecording ? 0
-                                                              : AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
         }
         AMediaCodecBufferInfo *info = (AMediaCodecBufferInfo *) malloc(
                 sizeof(AMediaCodecBufferInfo));
